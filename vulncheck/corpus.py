@@ -26,6 +26,17 @@ VULNERABLE = [
     {"name": "assert_auth",     "cwe": "CWE-617",  "source": "def admin_action(user):\n    assert user.is_admin\n    wipe()\n"},
     {"name": "sql_fstring",     "cwe": "CWE-89",   "source": 'def find(uid):\n    q = f"SELECT * FROM users WHERE id = {uid}"\n    return q\n'},
     {"name": "hardcoded_key",   "cwe": "CWE-798",  "source": 'SECRET = "hunter2-prod-key-abc123"\n'},
+    # catalogue tier, batch 2
+    {"name": "shell_fstring",   "cwe": "CWE-78",   "source": 'import subprocess\ndef ping(host):\n    return subprocess.run(f"ping -c 1 {host}", shell=True)\n'},
+    {"name": "pickle_cookie",   "cwe": "CWE-502",  "source": "import pickle\ndef restore_session(cookie):\n    return pickle.loads(cookie)\n"},
+    {"name": "md5_password",    "cwe": "CWE-916",  "source": "import hashlib\ndef register(username, password):\n    hashed = hashlib.md5(password.encode()).hexdigest()\n    db.save(username, hashed)\n"},
+    {"name": "random_token",    "cwe": "CWE-330",  "source": 'import random\ndef issue_reset_token():\n    token = "".join(random.choices("abcdef0123456789", k=32))\n    return token\n'},
+    {"name": "verify_false",    "cwe": "CWE-295",  "source": "import requests\ndef fetch_status(url):\n    return requests.get(url, timeout=5, verify=False).status_code\n"},
+    {"name": "mktemp_race",     "cwe": "CWE-377",  "source": 'import tempfile\ndef export(rows):\n    path = tempfile.mktemp(suffix=".csv")\n    with open(path, "w") as f:\n        f.write(rows)\n    return path\n'},
+    {"name": "chmod_777",       "cwe": "CWE-732",  "source": "import os\ndef share(path):\n    os.chmod(path, 0o777)\n    return path\n"},
+    {"name": "token_eq",        "cwe": "CWE-208",  "source": "def verify(request, expected_token):\n    if request.token == expected_token:\n        return grant()\n    return deny()\n"},
+    {"name": "flask_debug",     "cwe": "CWE-489",  "source": 'from flask import Flask\napp = Flask(__name__)\nif __name__ == "__main__":\n    app.run(debug=True)\n'},
+    {"name": "silent_oserror",  "cwe": "CWE-390",  "source": "def load_settings(path):\n    try:\n        return read(path)\n    except OSError:\n        pass\n"},
 ]
 
 CLEAN = [
@@ -36,4 +47,15 @@ CLEAN = [
     {"name": "param_sql",        "source": 'def find(uid):\n    cur.execute("SELECT * FROM users WHERE id = ?", (uid,))\n'},
     {"name": "env_secret",       "source": 'import os\nSECRET = os.environ["SECRET"]\n'},
     {"name": "test_with_assert", "source": "def test_add():\n    assert add(2, 2) == 4\n"},  # legit assert -> exposes assert-check FP
+    # catalogue tier, batch 2 — the clean twin of each new vulnerable sample
+    {"name": "shell_argv",       "source": 'import subprocess\ndef ping(host):\n    return subprocess.run(["ping", "-c", "1", host], check=True)\n'},
+    {"name": "json_cookie",      "source": "import json\ndef restore_session(cookie):\n    return json.loads(cookie)\n"},
+    {"name": "md5_cache_key",    "source": "import hashlib\ndef cache_key(url, params):\n    raw = url + repr(params)\n    return hashlib.md5(raw.encode()).hexdigest()\n"},
+    {"name": "secrets_token",    "source": "import secrets\ndef issue_reset_token():\n    return secrets.token_urlsafe(32)\n"},
+    {"name": "verify_bundle",    "source": "import requests\ndef fetch_status(url, ca_bundle):\n    return requests.get(url, timeout=5, verify=ca_bundle).status_code\n"},
+    {"name": "mkstemp_safe",     "source": 'import os, tempfile\ndef export(rows):\n    fd, path = tempfile.mkstemp(suffix=".csv")\n    with os.fdopen(fd, "w") as f:\n        f.write(rows)\n    return path\n'},
+    {"name": "chmod_644",        "source": "import os\ndef share(path):\n    os.chmod(path, 0o644)\n    return path\n"},
+    {"name": "compare_digest",   "source": "import hmac\ndef verify(request, expected_token):\n    if hmac.compare_digest(request.token, expected_token):\n        return grant()\n    return deny()\n"},
+    {"name": "flask_env_debug",  "source": 'import os\nfrom flask import Flask\napp = Flask(__name__)\nif __name__ == "__main__":\n    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")\n'},
+    {"name": "suppress_oserror", "source": "import contextlib\ndef remove_temp(path):\n    with contextlib.suppress(FileNotFoundError):\n        unlink(path)\n"},
 ]

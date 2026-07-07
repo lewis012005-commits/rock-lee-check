@@ -19,11 +19,22 @@ Exit codes: `0` = green ("clean against what it knows", never "clean"); `1` =
 scan findings; `2` = the tool failed its own self-validation and refuses to
 grade your code at all.
 
+## Catalogue (16 checks, all self-tested)
+
+CWE-95 eval/exec · CWE-1188 mutable default (execution-grounded) · CWE-396 bare
+except · CWE-617 assert-as-check · CWE-89 SQL string-building · CWE-798
+hardcoded secret · CWE-78 shell command from data · CWE-502 unsafe deserialize ·
+CWE-916 weak hash for secret · CWE-330 non-crypto random token · CWE-295 TLS
+verify disabled · CWE-377 insecure tempfile · CWE-732 world-writable chmod ·
+CWE-208 timing-unsafe compare · CWE-489 web debug mode · CWE-390 silent typed
+except. Detection only; every one ships falsifiable self-tests and is rejected
+until `validate_check` passes.
+
 ## Architecture
 
 | file | job |
 |---|---|
-| `check.py` | `Check` + `Finding` + `validate_check` — a check is an artefact that ships with its own falsifiable self-tests |
+| `check.py` | `Check` + `Finding` + `validate_check` — a check is an artefact that ships with its own falsifiable self-tests; `skip_path` lets a check exempt whole files (e.g. tests) in scan mode |
 | `checks.py` | the concrete checks (catalogue tier): each a known bug class with a CWE ref, detector, self-tests, optional execution-grounded confirm |
 | `corpus.py` | labelled ground-truth (vulnerable + clean, all inert defect fixtures) — the tool's meta-test |
 | `harness.py` | self-validation + corpus evaluation; measures the tool's own TP/FP/FN |
@@ -61,6 +72,17 @@ grade your code at all.
   checks — but each ingested pattern earns trust the same way: falsifiable
   self-tests first. Bulk-importing patterns bulk-imports false positives (P4 at
   scale); the self-test gate is the calibration that stops it.
+- **Adversarially narrow, then lock it in (how batch 2 was built):** the ten
+  checks CWE-78…CWE-390 were authored in parallel, then each handed to a
+  false-positive hunter that *reproduced by execution* a realistic clean idiom
+  the first cut fired on — Gravatar's `md5(author_email)`, `shlex.quote()`'d
+  shell commands, `random.uniform` jitter inside `refresh_access_token`, a
+  server-side `CERT_NONE`, an `asyncio.run(debug=True)`. Every reproduced FP is
+  now a permanent self-test **negative**: the narrowed detector does not run
+  until it stays silent on the idiom that fooled it. Where a clean idiom is
+  syntactically indistinguishable from the bug without data-flow (a bare-variable
+  shell command, a stored-password `==`), recall is surrendered **honestly** and
+  recorded as an accepted miss — never faked to keep a number at 100%.
 - **Grow the corpus:** for production, replace the toy corpus with real labelled
   sets (NIST Juliet, OWASP Benchmark) so the FP/FN numbers mean something.
 
@@ -75,9 +97,13 @@ grade your code at all.
       P2 with a decimal bolted on.
 - [ ] Cross-seat agreement weighted by *seat diversity* (same-family agreement
       is weak; cross-model agreement is the real signal) as a confidence input.
-- [x] Scope-narrowing the FP-prone checks: `assert-validation` now skips test
-      scopes (functions `test*`, classes `Test*`) and test files (`skip_path`).
-      The corpus FP that exposed it stays as a permanent regression negative.
+- [x] Scope-narrowing the FP-prone checks: `assert-validation` skips test
+      scopes/files; the batch-2 checks were each narrowed against a reproduced
+      adversary FP (whole-word name gates, import-attributed sinks, `skip_path`
+      for test files), and every exposing snippet stays as a regression negative.
+      Residual accepted misses (bare-variable shell command, guard-insensitive
+      `config['DEBUG']=True`, retry-loop `except: pass`) are documented in the
+      check comments, not silently dropped.
 - [ ] The frontier handoff: what the tool does NOT cover routes to a foreign
       seat, not to a lower-confidence bucket.
 
