@@ -38,6 +38,7 @@ class Check:
     detect: Callable                       # detect(source) -> list[Finding]
     self_test: SelfTest
     confirm: Optional[Callable] = None     # optional: confirm(source) -> (bool, evidence) by EXECUTION
+    skip_path: Optional[Callable] = None   # optional: skip_path(path) -> bool; scan mode skips matching files
 
     def run(self, source: str):
         findings = self.detect(source)

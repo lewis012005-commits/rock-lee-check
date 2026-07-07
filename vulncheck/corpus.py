@@ -9,10 +9,14 @@ These are INERT defect fixtures — code that CONTAINS a defect, not code that
 does harm. A string-concatenated SQL query is the injection ANTI-PATTERN; it
 connects to nothing and attacks nothing. Same category as a linter's fixtures.
 
-HONEST LIMIT baked into the corpus: `test_with_assert` is a legitimate assert
-in a test, labelled clean. The assert check will fire on it — a real false
-positive — so the meta-test reports the tool's own imprecision instead of a
-rigged 100%. That is the tool catching a weakness in one of its own checks.
+HONEST LIMIT, and what it bought: `test_with_assert` is a legitimate assert in
+a test, labelled clean. The assert check originally fired on it — a real false
+positive that the meta-test reported instead of a rigged 100%. That exposure is
+what drove the scope-narrowing of `assert-validation` (test scopes are the
+legitimate home of asserts, so they are skipped). The sample stays here as a
+permanent regression negative: if the check ever widens back, this corpus entry
+catches it. That is the loop working: the tool caught a weakness in one of its
+own checks, the check was narrowed, and the evidence became a regression test.
 """
 
 VULNERABLE = [

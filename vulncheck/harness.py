@@ -28,8 +28,16 @@ def evaluate_corpus(checks):
     fn = {c.id: 0 for c in checks}
     fired_map = {}
 
+    def _run_all(source):
+        fired = {}
+        for c in checks:
+            findings = c.run(source)
+            if findings:
+                fired[c.id] = findings
+        return fired
+
     for s in corpus.VULNERABLE:
-        fired = {c.id: c.run(s["source"]) for c in checks if c.run(s["source"])}
+        fired = _run_all(s["source"])
         fired_map[s["name"]] = fired
         for c in checks:
             if c.cwe == s["cwe"]:
@@ -38,7 +46,7 @@ def evaluate_corpus(checks):
                 fp[c.id] += 1  # fired on an isolated sample that isn't its class -> false positive
 
     for s in corpus.CLEAN:
-        fired = {c.id: c.run(s["source"]) for c in checks if c.run(s["source"])}
+        fired = _run_all(s["source"])
         fired_map[s["name"]] = fired
         for c in checks:
             if c.id in fired:

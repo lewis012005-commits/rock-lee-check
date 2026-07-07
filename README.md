@@ -8,7 +8,16 @@ future, which stays imagination-bound). Detection only — it flags defects in
 your own code so they can be fixed. It generates, delivers, and weaponises
 nothing.
 
-Run: `python3 -m vulncheck`
+Run:
+
+```
+python3 -m vulncheck              # self-check: validate every check, grade the tool on the corpus
+python3 -m vulncheck <paths...>   # scan real code with the TRUSTED checks (self-validation runs first)
+```
+
+Exit codes: `0` = green ("clean against what it knows", never "clean"); `1` =
+scan findings; `2` = the tool failed its own self-validation and refuses to
+grade your code at all.
 
 ## Architecture
 
@@ -18,7 +27,7 @@ Run: `python3 -m vulncheck`
 | `checks.py` | the concrete checks (catalogue tier): each a known bug class with a CWE ref, detector, self-tests, optional execution-grounded confirm |
 | `corpus.py` | labelled ground-truth (vulnerable + clean, all inert defect fixtures) — the tool's meta-test |
 | `harness.py` | self-validation + corpus evaluation; measures the tool's own TP/FP/FN |
-| `__main__.py` | runner; exits non-zero if the tool fails its own self-validation |
+| `__main__.py` | runner: self-check mode + scan mode over real files; exits non-zero if the tool fails its own self-validation |
 
 ## The five disciplines (do not drop any of these when scaling)
 
@@ -66,10 +75,20 @@ Run: `python3 -m vulncheck`
       P2 with a decimal bolted on.
 - [ ] Cross-seat agreement weighted by *seat diversity* (same-family agreement
       is weak; cross-model agreement is the real signal) as a confidence input.
-- [ ] Scope-narrowing the FP-prone checks (e.g. `assert-validation` should skip
-      test files / only flag asserts gating security-relevant actions).
+- [x] Scope-narrowing the FP-prone checks: `assert-validation` now skips test
+      scopes (functions `test*`, classes `Test*`) and test files (`skip_path`).
+      The corpus FP that exposed it stays as a permanent regression negative.
 - [ ] The frontier handoff: what the tool does NOT cover routes to a foreign
       seat, not to a lower-confidence bucket.
+
+## Dogfood
+
+`python3 -m vulncheck vulncheck/` — the tool scanning itself — reports exactly
+one finding: its own `exec(compile(...))` inside the mutable-default confirm
+harness. That is a true pattern-level hit on a deliberate, documented use
+(executing inert corpus fixtures to reproduce a bug), and it stays reported
+rather than suppressed: the tool does not special-case itself, and a `pattern`
+finding is a candidate for human judgement, which is the correct tier here.
 
 ## Boundary
 

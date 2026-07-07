@@ -128,22 +128,47 @@ bare_except = Check(
 
 
 # --- CWE-617: assert used as a runtime/security check ----------------------
+# Scope-narrowed after the corpus meta-test exposed a false positive on
+# `test_with_assert`: asserts are the LEGITIMATE idiom inside tests, so the
+# detector skips test scopes (functions named test*, classes named Test*) and
+# the scan runner skips test files entirely via `skip_path`.
 def _detect_assert(source):
     tree = _parse(source)
     if tree is None:
         return []
-    return [Finding("assert-validation", "CWE-617",
-            "`assert` is stripped under `python -O`; never use it to enforce a runtime or security check",
-            getattr(n, "lineno", None))
-            for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+    out = []
+
+    def visit(node, in_test):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            in_test = in_test or node.name.startswith("test")
+        elif isinstance(node, ast.ClassDef):
+            in_test = in_test or node.name.startswith("Test")
+        if isinstance(node, ast.Assert) and not in_test:
+            out.append(Finding("assert-validation", "CWE-617",
+                "`assert` is stripped under `python -O`; never use it to enforce a runtime or security check",
+                getattr(node, "lineno", None)))
+        for child in ast.iter_child_nodes(node):
+            visit(child, in_test)
+
+    visit(tree, False)
+    return out
+
+def _is_test_path(path):
+    parts = path.replace("\\", "/").split("/")
+    base = parts[-1]
+    return "tests" in parts or "test" in parts \
+        or base.startswith("test_") or base.endswith("_test.py")
 
 assert_validation = Check(
     id="assert-validation", cwe="CWE-617",
     description="assert as a runtime check — vanishes under python -O, so the check silently disappears in prod",
-    detect=_detect_assert,
+    detect=_detect_assert, skip_path=_is_test_path,
     self_test=SelfTest(
-        positives=("def process(user):\n    assert user.is_admin\n    do_admin()\n",),
-        negatives=("def process(user):\n    if not user.is_admin:\n        raise PermissionError\n    do_admin()\n",),
+        positives=("def process(user):\n    assert user.is_admin\n    do_admin()\n",
+                   "assert config.is_valid\n"),
+        negatives=("def process(user):\n    if not user.is_admin:\n        raise PermissionError\n    do_admin()\n",
+                   "def test_add():\n    assert add(2, 2) == 4\n",
+                   "class TestMath:\n    def helper(self):\n        assert self.ready\n"),
     ),
 )
 
