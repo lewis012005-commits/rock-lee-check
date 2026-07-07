@@ -37,6 +37,14 @@ VULNERABLE = [
     {"name": "token_eq",        "cwe": "CWE-208",  "source": "def verify(request, expected_token):\n    if request.token == expected_token:\n        return grant()\n    return deny()\n"},
     {"name": "flask_debug",     "cwe": "CWE-489",  "source": 'from flask import Flask\napp = Flask(__name__)\nif __name__ == "__main__":\n    app.run(debug=True)\n'},
     {"name": "silent_oserror",  "cwe": "CWE-390",  "source": "def load_settings(path):\n    try:\n        return read(path)\n    except OSError:\n        pass\n"},
+    # batch 2 breadth probes — NEW syntactic shapes per class, not clones of the
+    # samples above: exec (not eval), Popen+concat (not run+f-string), sha1 (not
+    # md5), yaml.load (not pickle), a bare == on two signature names.
+    {"name": "exec_config",     "cwe": "CWE-95",   "source": 'code = open("cfg.py").read()\nexec(code)\n'},
+    {"name": "popen_concat",    "cwe": "CWE-78",   "source": 'import subprocess\ndef cat(fname):\n    return subprocess.Popen("cat " + fname, shell=True)\n'},
+    {"name": "sha1_token",      "cwe": "CWE-916",  "source": "import hashlib\ndef store(session_token):\n    return hashlib.sha1(session_token.encode()).hexdigest()\n"},
+    {"name": "yaml_load",       "cwe": "CWE-502",  "source": 'import yaml\ndef load_cfg(path):\n    return yaml.load(open(path))\n'},
+    {"name": "sig_compare",     "cwe": "CWE-208",  "source": "def check(provided_signature, expected_signature):\n    return provided_signature == expected_signature\n"},
 ]
 
 CLEAN = [
@@ -58,4 +66,11 @@ CLEAN = [
     {"name": "compare_digest",   "source": "import hmac\ndef verify(request, expected_token):\n    if hmac.compare_digest(request.token, expected_token):\n        return grant()\n    return deny()\n"},
     {"name": "flask_env_debug",  "source": 'import os\nfrom flask import Flask\napp = Flask(__name__)\nif __name__ == "__main__":\n    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")\n'},
     {"name": "suppress_oserror", "source": "import contextlib\ndef remove_temp(path):\n    with contextlib.suppress(FileNotFoundError):\n        unlink(path)\n"},
+    # batch 2 breadth probes — the RIGHT idiom for each new vulnerable shape,
+    # exercising the near-miss boundary each narrowing draws.
+    {"name": "argv_shell_false", "source": "import subprocess\ndef cat(fname):\n    return subprocess.run([\"cat\", fname], shell=False)\n"},
+    {"name": "ssl_default_ctx",  "source": "import ssl\nctx = ssl.create_default_context()\n"},
+    {"name": "secrets_choice",   "source": 'import secrets\ntoken = "".join(secrets.choice(CHARS) for _ in range(32))\n'},
+    {"name": "safe_load_all",    "source": "import yaml\ndef load_all(stream):\n    return list(yaml.safe_load_all(stream))\n"},
+    {"name": "chmod_700",        "source": "import os\ndef lock_down(path):\n    os.chmod(path, 0o700)\n"},
 ]
