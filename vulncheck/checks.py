@@ -279,14 +279,19 @@ hardcoded_secret = Check(
 # A bare-variable command is an accepted miss, locked in as a negative.
 def _ss_is_sanitized(node):
     """int() coerces away shell metacharacters; shlex.quote()/shlex.join()
-    escape for the shell — an interpolation wrapped in one of these is safe."""
+    escape for the shell — an interpolation wrapped in one of these is safe.
+    Crucially, only shlex's quote/join are shell-safe: plain `" ".join(parts)`
+    and `urllib.parse.quote(...)` do NOT escape shell metacharacters, so the
+    attribute form is accepted only when the receiver is `shlex` (else a real
+    `f"... {' '.join(argv)} ..."` injection would be silently missed)."""
     if not isinstance(node, ast.Call):
         return False
     f = node.func
     if isinstance(f, ast.Name):
-        return f.id in ("int", "quote")
+        return f.id in ("int", "quote")  # int() coerces; bare quote() is shlex.quote by convention
     if isinstance(f, ast.Attribute):
-        return f.attr in ("quote", "join")
+        return f.attr in ("quote", "join") \
+            and isinstance(f.value, ast.Name) and f.value.id == "shlex"
     return False
 
 def _ss_dynamic_cmd(node):
@@ -348,7 +353,9 @@ subprocess_shell = Check(
         positives=('import subprocess\nsubprocess.run(f"ping -c 1 {host}", shell=True)\n',
                    'import os\nos.system("tar czf backup.tgz " + path)\n',
                    'import subprocess\nsubprocess.run("rm -rf " + target, shell=True)\n',
-                   'import os\nos.popen("grep %s app.log" % pattern)\n'),
+                   'import os\nos.popen("grep %s app.log" % pattern)\n',
+                   # str.join is NOT shell-escaping — this is a real injection, must fire:
+                   'import subprocess\nsubprocess.run(f"echo {\' \'.join(argv)}", shell=True)\n'),
         negatives=('import subprocess\nsubprocess.run("ls -la", shell=True)\n',
                    'import subprocess\nsubprocess.run(["ping", "-c", "1", host], check=True)\n',
                    'import os\nos.system("make clean")\n',
@@ -357,6 +364,7 @@ subprocess_shell = Check(
                    'import subprocess\nsubprocess.run(CLEANUP_CMD, shell=True)\n',          # constant in a named var
                    'import subprocess\nsubprocess.check_output(cmd, shell=True)\n',         # bare variable (accepted miss)
                    'import shlex, subprocess\nsubprocess.check_output(f"grep {shlex.quote(p)} log", shell=True)\n',
+                   'import shlex, subprocess\nsubprocess.run(f"run {shlex.join(parts)}", shell=True)\n',  # shlex.join IS safe
                    'import os\nos.system("shutdown -r +%d" % int(minutes))\n'),
     ),
 )
@@ -768,6 +776,22 @@ def _ww_is_umask(call):
     fname = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else None)
     return fname == "umask"
 
+def _ww_own_umasks(fdef):
+    """umask calls in fdef's OWN body — NOT descending into nested functions,
+    each of which accounts for its own umasks. Otherwise an outer `umask(0)`
+    beside an unrelated inner helper's `umask(0o077)` would count as 2 and be
+    wrongly spared."""
+    found = []
+    def walk(n):
+        for c in ast.iter_child_nodes(n):
+            if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue  # a nested scope owns its own umask accounting
+            if isinstance(c, ast.Call) and _ww_is_umask(c):
+                found.append(c)
+            walk(c)
+    walk(fdef)
+    return found
+
 def _detect_world_writable_chmod(source):
     tree = _parse(source)
     if tree is None:
@@ -777,7 +801,7 @@ def _detect_world_writable_chmod(source):
     guarded = set()
     for fdef in ast.walk(tree):
         if isinstance(fdef, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            umasks = [c for c in ast.walk(fdef) if isinstance(c, ast.Call) and _ww_is_umask(c)]
+            umasks = _ww_own_umasks(fdef)
             if len(umasks) >= 2:
                 guarded.update(id(c) for c in umasks)
     out = []
@@ -824,7 +848,9 @@ world_writable_chmod = Check(
     self_test=SelfTest(
         positives=('import os\nos.chmod("app.sock", 0o777)\n',
                    "from pathlib import Path\nPath(p).chmod(0o666)\n",
-                   "import os\nos.umask(0)\n"),
+                   "import os\nos.umask(0)\n",
+                   # outer umask(0) must still fire even when a nested helper also calls umask:
+                   "import os\ndef setup():\n    os.umask(0)\n    def _restore(m):\n        os.umask(m)\n    return _restore\n"),
         negatives=("import os\nos.chmod(path, 0o644)\n",
                    "import os, stat\nos.chmod(path, stat.S_IRUSR | stat.S_IWUSR)\n",
                    "import os\nos.umask(0o077)\n",
